@@ -1,8 +1,5 @@
-# Получаем репозиторий
-# Считаем кол-во коммитов
-# Формируем отчет в маркдовн
-
-#github mcp собран по MR - https://github.com/github/github-mcp-server/pull/888
+# github mcp собран по MR - https://github.com/github/github-mcp-server/pull/888
+# GITHUB_PERSONAL_ACCESS_TOKEN="token"  ./github-mcp-server http --port 8080
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -26,7 +23,11 @@ class BasicActionLLM:
     def clear_context(self):
         self.conversation_history = []
 
-    def get_llm_response(self, prompt: str, role='user'):
+    def get_llm_response(self, prompt: str, role='user', tools=True):
+        if tools:
+            tools = [GeneralInformation.mcp_list_branches]
+        else:
+            tools = []
         final_response = False
         self.add_to_context(role, prompt)
         try:
@@ -34,7 +35,7 @@ class BasicActionLLM:
                 model=self.model,
                 messages=self.conversation_history,
                 stream=False,
-                tools=[GeneralInformation.mcp_list_branches], 
+                tools=tools,
             )
             llm_response = response["message"]["content"].strip()
             self.add_to_context("assistant", llm_response)
@@ -45,9 +46,9 @@ class BasicActionLLM:
                 function_to_call = available_functions.get(tool.function.name)
                 if function_to_call:
                     bra =  function_to_call(**tool.function.arguments)
-                    print(f'Всего веток: {len(bra)}')
-                    print(f'Всего веток: {", ".join(item["name"] for item in bra)}')
-
+                    self.clear_context()
+                    self.add_to_context('system', f'Список веток: "{bra}" , представлены ветки репозитория {tool.function.arguments.get('repo')} пользователя GitHub {tool.function.arguments.get('owner')}. размышляй и отвечай только на Русском языке')
+                    final_response, llm_response = self.get_llm_response('необходимо посчитать количество веток в представленном списке, вернуть список веток и общие их количество. В ответе нужно обязательно указать репозиторий и автора, список  веток нужно оформить в список')
                 else:
                     print('Function not found:', tool.function.name)
             return final_response, llm_response
@@ -108,8 +109,7 @@ class GeneralInformation(BasicActionLLM):
                     await session.initialize()
                     branches = await session.call_tool('list_branches', {'owner': owner,'repo': repo})
                     branches = json.loads(branches.content[0].text)
-                    return branches
-
+                    return ", ".join(item["name"] for item in branches)
                 except Exception as e:
                     print(f"Ошибка при обращении к LLM: {str(e)}")
         
